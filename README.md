@@ -25,7 +25,7 @@ mIDAssistant_iGov demands the following requirments:
 
 You can install mIDAssistant_iGov by downloading the jar file from the Github repository.
 
-##mIDAssistant_iGov Installation
+## mIDAssistant_iGov Installation
 
 In order to install mIDAssistant_iGov within the Android Studio environment, developers should perform the following steps:
 

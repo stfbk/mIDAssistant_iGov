@@ -1,4 +1,4 @@
-```markdown
+
 # mIDAssistant_iGov
 
 **mIDAssistant_iGov** is an Android Studio plugin that guides native mobile app developers with secure integeration of OpneID Connect iGov profile ([OpenID Connect iGov](https://openid.net/specs/openid-igov-openid-connect-1_0.html)) solutions within their apps. 
@@ -83,4 +83,3 @@ See the License for the specific language governing permissions and
 limitations under the License.
 
 Developed within [Security & Trust](https://st.fbk.eu) Research Unit at [Fondazione Bruno Kessler](https://www.fbk.eu/en/) (Italy)
-```

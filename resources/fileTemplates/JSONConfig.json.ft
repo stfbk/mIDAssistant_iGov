@@ -1,0 +1,11 @@
+{
+      "client_id": "${c_ID}",
+      "redirect_uri": "${redirect}",
+      "authorization_scope": "${scope}",
+      "discovery_uri": "${discovery}",
+      "authorization_endpoint_uri": "${auth_end}",
+      "token_endpoint_uri": "${token_end}",
+      "registration_endpoint_uri": "${reg_end}",
+      "user_info_endpoint_uri": "${user_end}",
+      "https_required": true
+}

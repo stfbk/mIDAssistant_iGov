@@ -1,0 +1,368 @@
+
+import android.support.v7.app.AppCompatActivity;
+import android.content.Intent;
+import android.net.Uri;
+import android.os.Bundle;
+import android.support.annotation.MainThread;
+import android.support.annotation.Nullable;
+import android.support.annotation.WorkerThread;
+import android.support.design.widget.Snackbar;
+import android.support.v7.app.AppCompatActivity;
+import android.util.Log;
+import android.view.View;
+import android.widget.Button;
+import android.widget.ImageView;
+import android.widget.TextView;
+import android.widget.Toast;
+
+import net.openid.appauth.AppAuthConfiguration;
+import net.openid.appauth.AuthState;
+import net.openid.appauth.AuthorizationException;
+import net.openid.appauth.AuthorizationResponse;
+import net.openid.appauth.AuthorizationService;
+import net.openid.appauth.AuthorizationServiceDiscovery;
+import net.openid.appauth.ClientAuthentication;
+import net.openid.appauth.TokenRequest;
+import net.openid.appauth.TokenResponse;
+
+import okio.Okio;
+
+import org.joda.time.format.DateTimeFormat;
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
+import java.io.IOException;
+import java.net.HttpURLConnection;
+import java.net.MalformedURLException;
+import java.net.URL;
+import java.nio.charset.Charset;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicReference;
+
+public class ${NAME} extends AppCompatActivity {
+
+    private static final String TAG = "AuthorizationActivity";
+
+    private static final String KEY_USER_INFO = "userInfo";
+
+    //per new code
+    private AuthStateManagerGoogle mStateManagerGoogle;
+    private ConfigurationGoogle mConfigurationGoogle;
+    private AuthorizationService mAuthServiceGoogle;
+    //fino
+    private final AtomicReference<JSONObject> mUserInfoJson = new AtomicReference<>();
+    private ExecutorService mExecutor;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+
+                // new code
+        mStateManagerGoogle = AuthStateManagerGoogle.getInstance(this);
+        mConfigurationGoogle = ConfigurationGoogle.getInstance(this);
+        //fino
+        mExecutor = Executors.newSingleThreadExecutor();
+
+        //per new code
+        mAuthServiceGoogle = new AuthorizationService(
+                this,
+                new AppAuthConfiguration.Builder()
+                        .setConnectionBuilder(mConfigurationGoogle.getConnectionBuilder())
+                        .build());
+        //fino
+        setContentView(R.layout.activity_authorization);
+        displayLoading("Restoring state...");
+
+        if (savedInstanceState != null) {
+            try {
+                mUserInfoJson.set(new JSONObject(savedInstanceState.getString(KEY_USER_INFO)));
+            } catch (JSONException ex) {
+                Log.e(TAG, "Failed to parse saved user info JSON, discarding", ex);
+            }
+        }
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+
+        if (mExecutor.isShutdown()) {
+            mExecutor = Executors.newSingleThreadExecutor();
+        }
+
+
+
+        AuthorizationResponse response = AuthorizationResponse.fromIntent(getIntent());
+        AuthorizationException ex = AuthorizationException.fromIntent(getIntent());
+
+        int isGoogle = getIntent().getIntExtra("google", -1);
+        int isMicrosoft = getIntent().getIntExtra("microsoft", -1);
+
+        if ((response != null || ex != null)) {
+            //per new code
+            mStateManagerGoogle.updateAfterAuthorization(response,ex);
+            //fino
+        }
+
+         if (response != null && response.authorizationCode != null) {
+            //per new code
+            mStateManagerGoogle.updateAfterAuthorization(response, ex);
+            exchangeAuthorizationCodeGoogle(response);
+
+        } else if (ex != null) {
+            displayNotAuthorized("Authorization flow failed: " + ex.getMessage());
+        } else {
+            displayNotAuthorized("No authorization state retained - reauthorization required");
+        }
+    }
+
+    @Override
+    protected void onSaveInstanceState(Bundle state) {
+        super.onSaveInstanceState(state);
+
+        if (mUserInfoJson.get() != null) {
+            state.putString(KEY_USER_INFO, mUserInfoJson.toString());
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        mAuthServiceGoogle.dispose();
+    }
+    @Override
+    public void onBackPressed() {
+        super.onBackPressed();
+            AuthState currentStateGoogle = mStateManagerGoogle.getCurrent();
+            AuthState clearedStateGoogle =
+                    new AuthState(currentStateGoogle.getAuthorizationServiceConfiguration());
+            if (currentStateGoogle.getLastRegistrationResponse() != null) {
+                clearedStateGoogle.update(currentStateGoogle.getLastRegistrationResponse());
+            }
+            mStateManagerGoogle.replace(clearedStateGoogle);
+
+    }
+
+
+    @MainThread
+    private void displayNotAuthorized(String explanation) {
+        findViewById(R.id.not_authorized).setVisibility(View.VISIBLE);
+        findViewById(R.id.authorized).setVisibility(View.GONE);
+        findViewById(R.id.loading_container).setVisibility(View.GONE);
+
+        ((TextView) findViewById(R.id.explanation)).setText(explanation);
+        findViewById(R.id.reauth).setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                signOut();
+            }
+        });
+    }
+
+    @MainThread
+    private void displayLoading(String message) {
+        findViewById(R.id.loading_container).setVisibility(View.VISIBLE);
+        findViewById(R.id.authorized).setVisibility(View.GONE);
+        findViewById(R.id.not_authorized).setVisibility(View.GONE);
+
+        ((TextView) findViewById(R.id.loading_description)).setText(message);
+    }
+
+    @MainThread
+    private void displayAuthorized() {
+        findViewById(R.id.authorized).setVisibility(View.VISIBLE);
+        findViewById(R.id.not_authorized).setVisibility(View.GONE);
+        findViewById(R.id.loading_container).setVisibility(View.GONE);
+
+        //per new code
+        AuthState stateGoogle = mStateManagerGoogle.getCurrent();
+        //fino
+
+        TextView refreshTokenInfoView = (TextView) findViewById(R.id.refresh_token_info);
+        refreshTokenInfoView.setText((stateGoogle.getRefreshToken() == null)
+                ? "No refresh token returned"
+                : "Refresh token returned");
+
+        TextView idTokenInfoView = (TextView) findViewById(R.id.id_token_info);
+        idTokenInfoView.setText((stateGoogle.getIdToken()) == null
+                ? "No ID Token returned"
+                : "ID Token returned");
+
+        TextView accessTokenInfoView = (TextView) findViewById(R.id.access_token_info);
+        if (stateGoogle.getAccessToken() ==null) {
+            accessTokenInfoView.setText("No access token returned");
+        } else {
+            // per new code
+            Long expiresAt = stateGoogle.getAccessTokenExpirationTime();
+            if (expiresAt == null) {
+                accessTokenInfoView.setText("Access time has no defined expiry");
+            } else if (expiresAt < System.currentTimeMillis()) {
+                accessTokenInfoView.setText("Access Token has expired");
+            } else {
+                String template = "Access Token expires at: %s";
+                accessTokenInfoView.setText(String.format(template,
+                        DateTimeFormat.forPattern("yyyy-MM-dd HH:mm:ss ZZ").print(expiresAt)));
+            }
+        }
+        //fino
+
+
+        View userInfoCard = findViewById(R.id.userinfo_card);
+        userInfoCard.setVisibility(View.VISIBLE);
+        JSONObject userInfo = mUserInfoJson.get();
+
+                if (userInfo == null) {
+                    Log.i(TAG, "EMPTY");
+                } else {
+                    ((TextView) findViewById(R.id.userinfo_json)).setText(mUserInfoJson.toString());
+                    // ((TextView) findViewById(R.id.userinfo_json)).setText(mUserInfoJson.get().getJSONArray("items").toString());
+
+                }
+        }
+
+
+
+
+    //per new code
+    @MainThread
+    private void exchangeAuthorizationCodeGoogle(AuthorizationResponse authorizationResponse) {
+        displayLoading("Exchanging authorization code");
+        performTokenRequestGoogle(
+                authorizationResponse.createTokenExchangeRequest(),
+                this::handleCodeExchangeResponseGoogle);
+    }
+    //fino
+
+
+    //per new code
+    @MainThread
+    private void performTokenRequestGoogle(
+            TokenRequest request,
+            AuthorizationService.TokenResponseCallback callback) {
+        ClientAuthentication clientAuthentication;
+        try {
+            clientAuthentication = mStateManagerGoogle.getCurrent().getClientAuthentication();
+        } catch (ClientAuthentication.UnsupportedAuthenticationMethod ex) {
+            Log.d(TAG, "Token request cannot be made, client authentication for the token "
+                    + "endpoint could not be constructed (%s)", ex);
+            displayNotAuthorized("Client authentication method is unsupported");
+            return;
+        }
+
+        mAuthServiceGoogle.performTokenRequest(
+                request,
+                clientAuthentication,
+                callback);
+    }
+    //fino
+
+    //per new code
+    @WorkerThread
+    private void handleCodeExchangeResponseGoogle(
+            @Nullable TokenResponse tokenResponse,
+            @Nullable AuthorizationException authException) {
+
+        mStateManagerGoogle.updateAfterTokenResponse(tokenResponse, authException);
+        if (!mStateManagerGoogle.getCurrent().isAuthorized()) {
+            final String message = "Authorization Code exchange failed"
+                    + ((authException != null) ? authException.error : "");
+
+            // WrongThread inference is incorrect for lambdas
+            //noinspection WrongThread
+            runOnUiThread(() -> displayNotAuthorized(message));
+        } else {
+            runOnUiThread(this::displayAuthorized);
+            runOnUiThread(this::fetchUserInfoGoogle);
+        }
+    }
+
+    //new code
+    @MainThread
+    private void fetchUserInfoGoogle() {
+        displayLoading("Fetching user info");
+        mStateManagerGoogle.getCurrent().performActionWithFreshTokens(mAuthServiceGoogle, this::fetchUserInfoGoogle);
+    }
+    //fino
+
+    //per new code
+    @MainThread
+    private void fetchUserInfoGoogle(String accessToken, String idToken, AuthorizationException ex) {
+        if (ex != null) {
+            Log.e(TAG, "Token refresh failed when fetching user info");
+            mUserInfoJson.set(null);
+            runOnUiThread(this::displayAuthorized);
+            return;
+        }
+
+        AuthorizationServiceDiscovery discoveryGoogle =
+                mStateManagerGoogle.getCurrent()
+                        .getAuthorizationServiceConfiguration()
+                        .discoveryDoc;
+
+        URL userInfoEndpoint;
+        try {
+            userInfoEndpoint =
+                    mConfigurationGoogle.getUserInfoEndpointUri() != null
+                            ? new URL(mConfigurationGoogle.getUserInfoEndpointUri().toString())
+                            : new URL(discoveryGoogle.getUserinfoEndpoint().toString());
+        } catch (MalformedURLException urlEx) {
+            Log.e(TAG, "Failed to construct user info endpoint URL", urlEx);
+            mUserInfoJson.set(null);
+            runOnUiThread(this::displayAuthorized);
+            return;
+        }
+
+        mExecutor.submit(() -> {
+            try {
+                HttpURLConnection conn =
+                        (HttpURLConnection) userInfoEndpoint.openConnection();
+                conn.setRequestProperty("Authorization", "Bearer " + accessToken);
+                conn.setInstanceFollowRedirects(false);
+                String response = Okio.buffer(Okio.source(conn.getInputStream()))
+                        .readString(Charset.forName("UTF-8"));
+                mUserInfoJson.set(new JSONObject(response));
+            } catch (IOException ioEx) {
+                Log.e(TAG, "Network error when querying userinfo endpoint", ioEx);
+                showSnackbar("Fetching user info failed");
+            } catch (JSONException jsonEx) {
+                Log.e(TAG, "Failed to parse userinfo response");
+                showSnackbar("Failed to parse user info");
+            }
+
+            runOnUiThread(this::displayAuthorized);
+        });
+    }
+
+    @MainThread
+    private void showSnackbar(String message) {
+        Snackbar.make(findViewById(R.id.coordinator),
+                message,
+                Snackbar.LENGTH_SHORT)
+                .show();
+    }
+
+    @MainThread
+    private void signOut() {
+
+        //per new code
+        AuthState currentStateGoogle = mStateManagerGoogle.getCurrent();
+        //fino
+
+
+        // per new code
+        AuthState clearedStateGoogle =
+                new AuthState(currentStateGoogle.getAuthorizationServiceConfiguration());
+        if (currentStateGoogle.getLastRegistrationResponse() != null) {
+            clearedStateGoogle.update(currentStateGoogle.getLastRegistrationResponse());
+        }
+        mStateManagerGoogle.replace(clearedStateGoogle);
+        //fino
+
+        Intent mainIntent = new Intent(this, MainActivity.class);
+        mainIntent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        startActivity(mainIntent);
+        finish();
+    }
+}
